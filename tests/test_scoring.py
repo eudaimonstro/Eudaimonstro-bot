@@ -118,3 +118,11 @@ def test_fractional_seconds_around_boundary():
 def test_missing_close_time_key_means_no_cutoff():
     records = [rec("A", 1, 0.9, "2026-10-20T00:00:00+00:00"), rec("B", 1, 0.7, "2026-10-20T00:00:00+00:00")]
     assert len(paired_scores(records, {"1": {"resolution": "yes"}})) == 1
+
+
+from harness.score import missing_question_ids
+
+
+def test_missing_question_ids_skips_cached():
+    records = [{"question_id": 1, "post_id": 10}, {"question_id": 2, "post_id": 20}, {"question_id": 1, "post_id": 10}]
+    assert missing_question_ids(records, {"1": {"resolution": "yes", "close_time": None}}) == {(20, 2)}
