@@ -22,6 +22,7 @@ from forecasting_tools import (
     ForecastBot,
     GeneralLlm,
     MetaculusClient,
+    MonetaryCostManager,
     MetaculusQuestion,
     MultipleChoiceQuestion,
     NumericDistribution,
@@ -43,6 +44,11 @@ from forecasting_tools import (
 
 dotenv.load_dotenv()
 logger = logging.getLogger(__name__)
+
+from pathlib import Path
+
+from config import VARIANTS, build_llms
+from harness.recorder import record_reports
 
 
 class FallTemplateBot2026(ForecastBot):
@@ -689,7 +695,7 @@ if __name__ == "__main__":
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    parser = argparse.ArgumentParser(description="Run the template forecasting bot")
+    parser = argparse.ArgumentParser(description="Run the forecasting bot (variant A)")
     parser.add_argument(
         "--mode",
         type=str,
@@ -697,83 +703,64 @@ if __name__ == "__main__":
         default="tournament",
         help="What to forecast on (default: tournament)",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Forecast without publishing to Metaculus",
+    )
     args = parser.parse_args()
     run_mode: Literal["tournament", "metaculus_cup", "test_questions"] = args.mode
 
     check_environment(strict=True)
-    publish_to_metaculus = True
+    publish_to_metaculus = not args.dry_run
     print_startup_banner(run_mode, will_publish=publish_to_metaculus)
 
-    # Configure the bot. The `llms=` block below is commented out to use
-    # whichever default models forecasting-tools picks based on your env vars;
-    # uncomment and edit to pin specific models.
+    variant = VARIANTS["A"]
     template_bot = FallTemplateBot2026(
         research_reports_per_question=1,
-        predictions_per_research_report=5,
+        predictions_per_research_report=variant.predictions_per_research_report,
         use_research_summary_to_forecast=False,
         publish_reports_to_metaculus=publish_to_metaculus,
         folder_to_save_reports_to=None,
         skip_previously_forecasted_questions=True,
         extra_metadata_in_explanation=True,
-        # llms={
-        #     "default": GeneralLlm(
-        #         model="openrouter/openai/gpt-4o",
-        #         temperature=0.3,
-        #         timeout=40,
-        #         allowed_tries=2,
-        #     ),
-        #     "summarizer": "openai/gpt-4o-mini",
-        #     "researcher": "asknews/news-summaries",
-        #     "parser": "openai/gpt-4o-mini",
-        # },
+        llms=build_llms(variant),
     )
 
-    # Per-mode tournament URL shown in the summary banner footer. These
-    # piggyback on the forecasting_tools SDK constants and need updating
-    # whenever those rotate seasons.
     TOURNAMENT_URLS = {
         "tournament": "https://www.metaculus.com/tournament/fall-futureeval-2026/",
         "metaculus_cup": "https://www.metaculus.com/tournament/metaculus-cup-fall-2026/",
         "test_questions": "https://www.metaculus.com/tournament/bot-testing-area/",
     }
 
-    # Dispatch on mode. Each branch produces a list of ForecastReport (or
-    # exceptions, since return_exceptions=True) which then flows into the
-    # summary printers below.
     client = MetaculusClient()
-    if run_mode == "tournament":
-        seasonal_tournament_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
-                client.CURRENT_AI_COMPETITION_ID, return_exceptions=True
+    with MonetaryCostManager(hard_limit=variant.cost_cap_usd):
+        if run_mode == "tournament":
+            seasonal_tournament_reports = asyncio.run(
+                template_bot.forecast_on_tournament(
+                    client.CURRENT_AI_COMPETITION_ID, return_exceptions=True
+                )
             )
-        )
-        minibench_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
-                client.CURRENT_MINIBENCH_ID, return_exceptions=True
+            minibench_reports = asyncio.run(
+                template_bot.forecast_on_tournament(
+                    client.CURRENT_MINIBENCH_ID, return_exceptions=True
+                )
             )
-        )
-        forecast_reports = seasonal_tournament_reports + minibench_reports
-    elif run_mode == "metaculus_cup":
-        # The Metaculus Cup may be uninitialized near the start of a season
-        # (Jan/May/Sep). MetaculusClient.ACX_2025_TOURNAMENT = 32564 and
-        # MetaculusClient.AI_2027_TOURNAMENT_ID = "ai-2027" are also valid
-        # targets here.
-        template_bot.skip_previously_forecasted_questions = False
-        forecast_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
-                client.CURRENT_METACULUS_CUP_ID, return_exceptions=True
+            forecast_reports = seasonal_tournament_reports + minibench_reports
+        elif run_mode == "metaculus_cup":
+            template_bot.skip_previously_forecasted_questions = False
+            forecast_reports = asyncio.run(
+                template_bot.forecast_on_tournament(
+                    client.CURRENT_METACULUS_CUP_ID, return_exceptions=True
+                )
             )
-        )
-    elif run_mode == "test_questions":
-        # The bot-testing-area tournament contains all question types and is
-        # the recommended target for smoke-testing your bot.
-        # https://www.metaculus.com/tournament/bot-testing-area/
-        template_bot.skip_previously_forecasted_questions = False
-        forecast_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
-                "bot-testing-area", return_exceptions=True
+        else:
+            template_bot.skip_previously_forecasted_questions = False
+            forecast_reports = asyncio.run(
+                template_bot.forecast_on_tournament(
+                    "bot-testing-area", return_exceptions=True
+                )
             )
-        )
 
     template_bot.log_report_summary(forecast_reports)
     print_run_summary_banner(
@@ -781,3 +768,10 @@ if __name__ == "__main__":
         will_publish=publish_to_metaculus,
         tournament_url=TOURNAMENT_URLS.get(run_mode),
     )
+
+    # Only live tournament forecasts are scored; test-area and dry runs are not recorded.
+    if run_mode == "tournament" and publish_to_metaculus:
+        count = record_reports(
+            forecast_reports, "A", variant.forecaster_models, Path("data/forecasts")
+        )
+        logger.info(f"Recorded {count} forecasts for variant A")
