@@ -11,7 +11,7 @@ import dotenv
 from forecasting_tools import MetaculusClient
 
 from harness.recorder import load_records
-from harness.scoring import paired_scores, render_report
+from harness.scoring import paired_scores_with_gap_exclusions, render_report
 
 DATA = Path("data")
 CACHE = DATA / "resolutions.json"
@@ -62,7 +62,8 @@ def main() -> None:
         tmp.replace(CACHE)
 
     today = date.today().isoformat()
-    report = render_report(paired_scores(records, cache), today)
+    pairs, excluded_for_gap = paired_scores_with_gap_exclusions(records, cache)
+    report = render_report(pairs, today, excluded_for_gap)
     out = DATA / "reports" / f"{today}-comparison.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report)
