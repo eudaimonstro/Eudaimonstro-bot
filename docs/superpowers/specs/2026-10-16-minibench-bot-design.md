@@ -36,7 +36,7 @@ Approach A goes live first, with the harness built alongside it. Approach B runs
 | Variant | Forecaster | Research | Role |
 |---|---|---|---|
 | A | One frontier reasoning model at high reasoning effort, 5 samples per question, median (template default aggregation) | AskNews news summaries | Live bot, publishes to Metaculus |
-| B | Panel of 3 frontier models from different labs (OpenAI, Anthropic, Google), 5 samples each; take each model's median, then the median of the three | Same research setting as A | Shadow, never publishes |
+| B | Panel of 3 frontier models from different labs (OpenAI, Anthropic, Google), 5 samples each; the median of all 15 samples (equal weight per model, using the library's built-in aggregation) | Same research setting as A | Shadow, never publishes |
 
 Initial model picks:
 - **A:** `openai/gpt-5.4` via OpenRouter, at high reasoning, because of the spring evidence.
@@ -55,7 +55,10 @@ config.py                variant definitions (A, B): model IDs, reasoning settin
 harness/
   recorder.py            turns forecast reports into JSONL records (one line per question per variant per run)
   shadow.py              runs variant B on the same open questions with publishing off, records its forecasts
-  score.py               fetches resolutions, scores paired forecasts, writes the comparison report
+  panel_bot.py           template bot subclass that rotates the forecasting model across a panel (variant B)
+  scoring.py             pure scoring math: log scores, pairing, bootstrap interval, switch decision, report text
+  score.py               I/O wrapper: fetches and caches resolutions, calls scoring.py, writes the comparison report
+scripts/commit_data.sh   commits new files under data/ and pushes with rebase-and-retry
 data/
   forecasts/<variant>/<YYYY-MM-DD>.jsonl
   reports/<YYYY-MM-DD>-comparison.md
@@ -74,7 +77,7 @@ tests/                   pytest unit tests for recorder and scorer
 - **Dependencies:** none.
 
 **`harness/recorder.py`**
-- **What it does:** `record(reports, variant, out_dir)` writes one JSON line per question with these fields: `question_id`, `post_id`, `question_type`, `variant`, `forecast` (probability for binary, option-to-probability map for multiple choice, list of percentiles for numeric), `forecast_time`, and `model_ids`. It reads the report objects `forecasting-tools` returns.
+- **What it does:** `record(reports, variant, out_dir)` writes one JSON line per question with these fields: `question_id`, `post_id`, `question_type`, `variant`, `forecast` (probability for binary, option-to-probability map for multiple choice, list of percentiles for numeric), `forecast_time`, `model_ids`, `price_usd`, and `error_count`. Conditional questions are skipped. It reads the report objects `forecasting-tools` returns.
 - **Dependencies:** `forecasting-tools` report types.
 
 **`harness/shadow.py`**
@@ -101,7 +104,7 @@ tests/                   pytest unit tests for recorder and scorer
 3. Weekly, Actions runs `bot-review` (rank, best and worst questions for A) and `score.py` (A vs. B), then commits both reports to `data/reports/`.
 4. Steve reads the weekly report. The decision rule below decides whether B replaces A.
 
-All workflows that commit to `data/` share one Actions `concurrency` group, so their pushes cannot race.
+Each variant writes only to its own folder, so concurrent pushes never conflict. Each commit step retries `git pull --rebase` then `git push` up to 5 times. (A shared Actions `concurrency` group was rejected: GitHub keeps only one pending run per group, so the 20-minute runs would starve the shadow runs.)
 
 ### Switch rule
 
@@ -114,9 +117,9 @@ Otherwise A stays live. After 250 paired questions with no clear winner, keep th
 ## Cost control
 
 - **Hard cap:** an OpenRouter credit limit on the API key itself. This is the cap that cannot fail.
-- **Soft cap:** a per-run dollar cap from `config.py`. It uses `forecasting-tools`' cost tracking if the library provides it; otherwise the hard cap alone applies. The plan's first task checks which.
+- **Soft cap:** a per-run dollar cap from `config.py`. It uses `forecasting-tools`' `MonetaryCostManager(hard_limit=...)`, which raises before an LLM call would exceed the limit.
 - **Credits denied:** variant A runs on a personal OpenRouter key with a hard limit Steve sets. The suggested limit is $20/month, with the parser and researcher on the cheapest settings and the shadow B variant off. If Steve sets no limit, the bot does not run.
-- **Shadow cost:** B costs about 3x A per question. If credits run low, B pauses first, before A is ever affected.
+- **Shadow cost:** B costs about 3x A per question. B only runs while the repository variable `SHADOW_ENABLED` is `true`, so if credits run low, Steve turns B off first, before A is ever affected.
 
 ## Research provider
 
@@ -126,8 +129,8 @@ The primary provider is AskNews (`asknews/news-summaries`) through the Metaculus
 
 - The template already runs questions with `return_exceptions=True`, so one failed question does not stop the run. Failures are logged in the Actions run summary.
 - Comments are mandatory for prizes, so the smoke test (below) confirms that a published forecast carries a reasoning comment before the first live run.
-- Google models have a shared limit of 150 requests per minute across all participants. On 429 errors, B's Google call retries with backoff, and if it still fails, B records the forecast as the median of the remaining models with a `degraded: true` flag. The scorer reports degraded counts.
-- If `data/` commits fail, the run still succeeds (forecasts are on Metaculus). The next run's commit picks up the unwritten records, because the recorder writes before committing.
+- Google models have a shared limit of 150 requests per minute across all participants. On 429 errors, the library retries the call. If samples still fail, the library aggregates the samples that succeeded (it requires at least half). The recorder stores each report's error count, and the scorer reports how many paired questions had errors.
+- If the `data/` push still fails after 5 retries, the step fails and the run shows red. Actions runners are ephemeral, so that run's records are lost. For B, the next shadow run forecasts those questions again. For A, those questions go unpaired, and Metaculus still has the forecasts.
 
 ## Testing
 
