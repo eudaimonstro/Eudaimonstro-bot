@@ -92,3 +92,29 @@ def test_render_report_mentions_decision_and_counts():
     text = render_report(pairs, "2026-10-26")
     assert "Paired questions: 1" in text
     assert "Decision: Keep collecting" in text
+
+
+def _one_pair(close_time, forecast_time_a, forecast_time_b="2026-10-20T00:00:00+00:00"):
+    records = [rec("A", 1, 0.9, forecast_time_a), rec("B", 1, 0.7, forecast_time_b)]
+    return paired_scores(records, {"1": {"resolution": "yes", "close_time": close_time}})
+
+
+def test_close_time_with_non_utc_offset():
+    # 20:00-05:00 on the 21st is 01:00 UTC on the 22nd, so a 23:00 UTC forecast counts
+    assert len(_one_pair("2026-10-21T20:00:00-05:00", "2026-10-21T23:00:00+00:00")) == 1
+
+
+def test_close_time_with_z_suffix():
+    assert len(_one_pair("2026-10-22T00:00:00Z", "2026-10-22T00:00:00+00:00")) == 1
+    assert _one_pair("2026-10-22T00:00:00Z", "2026-10-22T00:00:01+00:00") == []
+
+
+def test_fractional_seconds_around_boundary():
+    close = "2026-10-22T00:00:00+00:00"
+    assert len(_one_pair(close, "2026-10-21T23:59:59.999999+00:00")) == 1
+    assert _one_pair(close, "2026-10-22T00:00:00.000001+00:00") == []
+
+
+def test_missing_close_time_key_means_no_cutoff():
+    records = [rec("A", 1, 0.9, "2026-10-20T00:00:00+00:00"), rec("B", 1, 0.7, "2026-10-20T00:00:00+00:00")]
+    assert len(paired_scores(records, {"1": {"resolution": "yes"}})) == 1

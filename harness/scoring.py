@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from statistics import mean
 
 UNSCORED_RESOLUTIONS = {"annulled", "ambiguous"}
@@ -40,9 +41,17 @@ def log_score(question_type: str, forecast, resolution: str) -> float | None:
     return None
 
 
+def _parse_time(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def _latest_before_close(records: list[dict], close_time: str | None) -> dict | None:
-    eligible = [r for r in records if close_time is None or r["forecast_time"] <= close_time]
-    return max(eligible, key=lambda r: r["forecast_time"], default=None)
+    cutoff = _parse_time(close_time) if close_time is not None else None
+    eligible = [r for r in records if cutoff is None or _parse_time(r["forecast_time"]) <= cutoff]
+    return max(eligible, key=lambda r: _parse_time(r["forecast_time"]), default=None)
 
 
 def paired_scores(records: list[dict], resolutions: dict[str, dict]) -> list[PairedScore]:
@@ -55,8 +64,8 @@ def paired_scores(records: list[dict], resolutions: dict[str, dict]) -> list[Pai
         resolved = resolutions.get(str(question_id))
         if resolved is None or "A" not in by_variant or "B" not in by_variant:
             continue
-        a = _latest_before_close(by_variant["A"], resolved["close_time"])
-        b = _latest_before_close(by_variant["B"], resolved["close_time"])
+        a = _latest_before_close(by_variant["A"], resolved.get("close_time"))
+        b = _latest_before_close(by_variant["B"], resolved.get("close_time"))
         if a is None or b is None:
             continue
         score_a = log_score(a["question_type"], a["forecast"], resolved["resolution"])
