@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Sequence
@@ -10,6 +9,7 @@ from typing import Any, Sequence
 from forecasting_tools import MetaculusClient, MonetaryCostManager
 
 from config import VARIANTS, build_llms, build_panel
+from harness.chunked import forecast_in_chunks
 from harness.panel_bot import PanelBot
 from harness.recorder import load_records, record_reports
 
@@ -57,12 +57,18 @@ def main() -> None:
         llms=build_llms(variant),
     )
     with MonetaryCostManager(hard_limit=variant.cost_cap_usd) as cost_manager:
-        reports = asyncio.run(bot.forecast_questions(todo, return_exceptions=True))
-    logger.info(
-        f"Shadow run cost ${cost_manager.current_usage:.2f} of ${variant.cost_cap_usd:.2f} cap"
-    )
-    count = record_reports(reports, "B", variant.forecaster_models, FORECASTS)
-    logger.info(f"Recorded {count} forecasts for variant B")
+        try:
+            forecast_in_chunks(
+                bot,
+                todo,
+                variant.chunk_size,
+                cost_manager,
+                lambda reports: record_reports(reports, "B", variant.forecaster_models, FORECASTS),
+            )
+        finally:
+            logger.info(
+                f"Shadow run cost ${cost_manager.current_usage:.2f} of ${variant.cost_cap_usd:.2f} cap"
+            )
 
 
 if __name__ == "__main__":

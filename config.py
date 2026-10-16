@@ -18,6 +18,7 @@ class Variant:
     predictions_per_model: int
     reasoning_effort: str
     cost_cap_usd: float  # per run; the OpenRouter key limit is the hard cap
+    chunk_size: int  # questions forecast concurrently; the cap is checked between chunks
 
     @property
     def predictions_per_research_report(self) -> int:
@@ -25,8 +26,8 @@ class Variant:
 
 
 VARIANTS: dict[str, Variant] = {
-    "A": Variant("A", (GPT,), predictions_per_model=5, reasoning_effort="high", cost_cap_usd=5.0),
-    "B": Variant("B", (GPT, CLAUDE, GEMINI), predictions_per_model=5, reasoning_effort="high", cost_cap_usd=15.0),
+    "A": Variant("A", (GPT,), predictions_per_model=5, reasoning_effort="high", cost_cap_usd=5.0, chunk_size=5),
+    "B": Variant("B", (GPT, CLAUDE, GEMINI), predictions_per_model=5, reasoning_effort="high", cost_cap_usd=15.0, chunk_size=3),
 }
 
 

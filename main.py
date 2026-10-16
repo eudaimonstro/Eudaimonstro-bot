@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 from pathlib import Path
 
 from config import VARIANTS, build_llms
+from harness.chunked import forecast_in_chunks
 from harness.recorder import record_reports
 
 
@@ -745,19 +746,27 @@ if __name__ == "__main__":
     client = MetaculusClient()
     with MonetaryCostManager(hard_limit=variant.cost_cap_usd) as cost_manager:
         if run_mode == "tournament":
-            seasonal_tournament_reports = asyncio.run(
-                template_bot.forecast_on_tournament(
-                    client.CURRENT_AI_COMPETITION_ID, return_exceptions=True
+            forecast_reports = []
+            for tournament in (
+                client.CURRENT_AI_COMPETITION_ID,
+                client.CURRENT_MINIBENCH_ID,
+            ):
+                try:
+                    open_questions = client.get_all_open_questions_from_tournament(
+                        tournament
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Could not fetch questions for tournament {tournament}: {e}"
+                    )
+                    continue
+                todo = [q for q in open_questions if not q.already_forecasted]
+                logger.info(
+                    f"Tournament {tournament}: {len(todo)} of {len(open_questions)} open questions to forecast"
                 )
-            )
-            record(seasonal_tournament_reports)
-            minibench_reports = asyncio.run(
-                template_bot.forecast_on_tournament(
-                    client.CURRENT_MINIBENCH_ID, return_exceptions=True
+                forecast_reports += forecast_in_chunks(
+                    template_bot, todo, variant.chunk_size, cost_manager, record
                 )
-            )
-            record(minibench_reports)
-            forecast_reports = seasonal_tournament_reports + minibench_reports
         elif run_mode == "metaculus_cup":
             template_bot.skip_previously_forecasted_questions = False
             forecast_reports = asyncio.run(

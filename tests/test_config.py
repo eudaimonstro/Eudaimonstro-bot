@@ -35,3 +35,7 @@ def test_build_panel_returns_one_llm_per_model():
 
 def test_cost_caps_are_positive():
     assert all(v.cost_cap_usd > 0 for v in VARIANTS.values())
+
+
+def test_chunk_sizes_are_positive():
+    assert all(v.chunk_size > 0 for v in VARIANTS.values())
