@@ -1,4 +1,8 @@
-"""Turn forecast reports into JSONL records: one line per question per variant per run."""
+"""Turn forecast reports into JSONL records: one line per question per variant per run.
+
+Numeric, discrete and date forecasts are stored as declared percentiles only (date values
+are Unix timestamps in seconds). They are not scored by harness.scoring in this version.
+"""
 
 from __future__ import annotations
 
