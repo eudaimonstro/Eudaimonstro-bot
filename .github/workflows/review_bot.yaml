@@ -60,7 +60,7 @@ jobs:
       - name: Show reports in the run page
         run: |
           cat review.md >> "$GITHUB_STEP_SUMMARY"
-          cat data/reports/*-comparison.md 2>/dev/null | tail -n 40 >> "$GITHUB_STEP_SUMMARY" || true
+          latest=$(ls -1 data/reports/*-comparison.md 2>/dev/null | tail -n 1); [ -n "$latest" ] && cat "$latest" >> "$GITHUB_STEP_SUMMARY" || true
       - name: Commit reports
         if: success() || failure()
         run: scripts/commit_data.sh "Weekly review and A vs. B report"
