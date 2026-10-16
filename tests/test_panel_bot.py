@@ -20,3 +20,11 @@ def test_default_llm_rotates_evenly_across_panel():
 def test_other_purposes_are_untouched():
     bot = make_bot()
     assert bot.get_llm("researcher") == "asknews/news-summaries"
+
+
+def test_get_config_runs():
+    assert make_bot().get_config()["llms"]["default"]
+
+
+def test_make_llm_dict_lists_the_whole_panel():
+    assert make_bot().make_llm_dict()["default"] == ["openrouter/x/one", "openrouter/x/two", "openrouter/x/three"]

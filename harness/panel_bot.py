@@ -15,10 +15,16 @@ from main import FallTemplateBot2026
 
 class PanelBot(FallTemplateBot2026):
     def __init__(self, *, panel: list[GeneralLlm], **kwargs) -> None:
-        self._panel = cycle(panel)  # set first: the base __init__ may look up LLMs
+        self.panel = list(panel)  # set first: the base __init__ reads config and may look up LLMs
+        self._panel = cycle(self.panel)
         super().__init__(**kwargs)
 
     def get_llm(self, purpose="default", guarantee_type=None):  # type: ignore[override]
         if purpose == "default":
             return next(self._panel)
         return super().get_llm(purpose, guarantee_type)
+
+    def make_llm_dict(self):  # type: ignore[override]
+        llm_dict = super().make_llm_dict()
+        llm_dict["default"] = [llm.model for llm in self.panel]  # type: ignore[assignment]
+        return llm_dict
