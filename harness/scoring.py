@@ -43,7 +43,7 @@ def log_score(question_type: str, forecast, resolution: str) -> float | None:
     return None
 
 
-def _parse_time(value: str) -> datetime:
+def parse_time(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
@@ -51,17 +51,24 @@ def _parse_time(value: str) -> datetime:
 
 
 def _latest_before_close(records: list[dict], close_time: str | None) -> dict | None:
-    cutoff = _parse_time(close_time) if close_time is not None else None
-    eligible = [r for r in records if cutoff is None or _parse_time(r["forecast_time"]) <= cutoff]
-    return max(eligible, key=lambda r: _parse_time(r["forecast_time"]), default=None)
+    cutoff = parse_time(close_time) if close_time is not None else None
+    eligible = [r for r in records if cutoff is None or parse_time(r["forecast_time"]) <= cutoff]
+    return max(eligible, key=lambda r: parse_time(r["forecast_time"]), default=None)
 
 
 def paired_scores(records: list[dict], resolutions: dict[str, dict]) -> list[PairedScore]:
+    return paired_scores_with_gap_exclusions(records, resolutions)[0]
+
+
+def paired_scores_with_gap_exclusions(
+    records: list[dict], resolutions: dict[str, dict]
+) -> tuple[list[PairedScore], int]:
+    """Paired scores plus how many otherwise scorable pairs were dropped for being over MAX_GAP_HOURS apart."""
     by_question: dict[int, dict[str, list[dict]]] = {}
     for record in records:
         by_question.setdefault(record["question_id"], {}).setdefault(record["variant"], []).append(record)
 
-    pairs = []
+    pairs, excluded_for_gap = [], 0
     for question_id, by_variant in sorted(by_question.items()):
         resolved = resolutions.get(str(question_id))
         if resolved is None or "A" not in by_variant or "B" not in by_variant:
@@ -74,12 +81,13 @@ def paired_scores(records: list[dict], resolutions: dict[str, dict]) -> list[Pai
         score_b = log_score(b["question_type"], b["forecast"], resolved["resolution"])
         if score_a is None or score_b is None:
             continue
-        gap_hours = (_parse_time(b["forecast_time"]) - _parse_time(a["forecast_time"])).total_seconds() / 3600
+        gap_hours = (parse_time(b["forecast_time"]) - parse_time(a["forecast_time"])).total_seconds() / 3600
         if abs(gap_hours) > MAX_GAP_HOURS:
+            excluded_for_gap += 1
             continue
         had_errors = a.get("error_count", 0) > 0 or b.get("error_count", 0) > 0
         pairs.append(PairedScore(question_id, score_a, score_b, had_errors, gap_hours))
-    return pairs
+    return pairs, excluded_for_gap
 
 
 def bootstrap_interval(
@@ -101,10 +109,11 @@ def decide(paired_count: int, interval_low: float) -> str:
     return "Keep collecting"
 
 
-def render_report(pairs: list[PairedScore], date: str) -> str:
+def render_report(pairs: list[PairedScore], date: str, excluded_for_gap: int = 0) -> str:
     lines = [f"# A vs. B comparison, {date}", ""]
+    gap_line = f"- Pairs excluded for forecast gap over {MAX_GAP_HOURS}h: {excluded_for_gap}"
     if not pairs:
-        lines.append("No paired, resolved questions yet.")
+        lines += ["No paired, resolved questions yet.", "", gap_line]
         return "\n".join(lines) + "\n"
     differences = [p.difference for p in pairs]
     low, high = bootstrap_interval(differences)
@@ -115,6 +124,7 @@ def render_report(pairs: list[PairedScore], date: str) -> str:
         f"- Mean difference (B minus A): {mean(differences):.4f}",
         f"- 80% bootstrap interval: [{low:.4f}, {high:.4f}]",
         f"- Pairs where either variant had errors: {sum(p.had_errors for p in pairs)}",
+        gap_line,
         f"- Median forecast gap, B minus A (absolute, hours): {median(abs(p.gap_hours) for p in pairs):.1f}",
         f"- Maximum forecast gap, B minus A (absolute, hours): {max(abs(p.gap_hours) for p in pairs):.1f}",
         "",

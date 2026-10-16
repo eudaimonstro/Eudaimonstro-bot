@@ -7,6 +7,7 @@ from harness.scoring import (
     decide,
     log_score,
     paired_scores,
+    paired_scores_with_gap_exclusions,
     render_report,
 )
 
@@ -182,3 +183,33 @@ def test_pairs_more_than_24_hours_apart_are_excluded():
     pairs = paired_scores(records, {"1": {"resolution": "yes", **close}, "2": {"resolution": "yes", **close}})
     assert [p.question_id for p in pairs] == [2]
     assert pairs[0].gap_hours == pytest.approx(2.0)
+
+
+def test_gap_exclusions_are_counted():
+    close = {"close_time": "2026-10-30T00:00:00+00:00"}
+    records = [
+        rec("A", 1, 0.9, "2026-10-20T00:00:00+00:00"),
+        rec("B", 1, 0.7, "2026-10-21T06:00:00+00:00"),  # 30 hours after A: excluded
+        rec("A", 2, 0.9, "2026-10-22T00:00:00+00:00"),
+        rec("B", 2, 0.7, "2026-10-20T00:00:00+00:00"),  # 48 hours before A: excluded
+        rec("A", 3, 0.9, "2026-10-20T00:00:00+00:00"),
+        rec("B", 3, 0.7, "2026-10-20T02:00:00+00:00"),  # included
+        rec("A", 4, 0.9, "2026-10-20T00:00:00+00:00"),  # no B: unpaired, not a gap exclusion
+    ]
+    resolutions = {str(i): {"resolution": "yes", **close} for i in (1, 2, 3, 4)}
+    pairs, excluded = paired_scores_with_gap_exclusions(records, resolutions)
+    assert [p.question_id for p in pairs] == [3]
+    assert excluded == 2
+
+
+def test_render_report_shows_gap_exclusions():
+    records = [rec("A", 1, 0.6, "2026-10-20T00:00:00+00:00"), rec("B", 1, 0.8, "2026-10-20T00:00:00+00:00")]
+    pairs = paired_scores(records, {"1": {"resolution": "yes", "close_time": None}})
+    assert "Pairs excluded for forecast gap over 24h: 3" in render_report(pairs, "2026-10-26", excluded_for_gap=3)
+    assert "Pairs excluded for forecast gap over 24h: 0" in render_report(pairs, "2026-10-26")
+
+
+def test_render_report_with_no_pairs_still_shows_gap_exclusions():
+    text = render_report([], "2026-10-26", excluded_for_gap=5)
+    assert "No paired, resolved questions yet" in text
+    assert "Pairs excluded for forecast gap over 24h: 5" in text
