@@ -59,7 +59,8 @@ Claude cannot do these, because each one creates an account or handles a credent
 
 ```bash
 cd /home/steve/workspace/project
-git pull https://github.com/Metaculus/metac-bot-template.git main --allow-unrelated-histories --no-rebase -m "Import metac-bot-template"
+git fetch https://github.com/Metaculus/metac-bot-template.git main
+git merge --allow-unrelated-histories -m "Import metac-bot-template" FETCH_HEAD
 ls
 ```
 Expected: `README.md bot_helpers.py docs integrations main.py main_with_no_framework.py poetry.lock pyproject.toml` (plus dotfiles).
@@ -77,6 +78,8 @@ poetry install --no-interaction --no-root --with integrations
 python -c "import forecasting_tools, sys; print(sys.version.split()[0], 'ok')"
 ```
 Expected: a version string followed by `ok`. Poetry installs into the activated `venv` because `VIRTUAL_ENV` is set.
+
+This plan was written against `forecasting-tools` 0.3.4, the version in the template's `poetry.lock` on 2026-10-16. Check that it still matches with `grep -A1 'name = "forecasting-tools"' poetry.lock`. If it differs, re-check the symbols this plan uses (`MonetaryCostManager(hard_limit=...)`, `get_api_type_name`, `declared_percentiles`, `CURRENT_MINIBENCH_ID`, `resolution_string`) before Task 3.
 
 - [ ] **Step 3: Add pytest and make the repo root importable in tests**
 
@@ -870,7 +873,7 @@ class PanelBot(FallTemplateBot2026):
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_panel_bot.py -v`
-Expected: 2 passed. If the base `__init__` turns out to call `get_llm("default")` (the rotation test would then show a 6/5/4 split), call `self._panel = cycle(panel)` again after `super().__init__(**kwargs)`, and rerun.
+Expected: 2 passed. If construction fails because `METACULUS_TOKEN` or `OPENROUTER_API_KEY` is missing, set dummy values with `monkeypatch.setenv` in the test (the same fix applies to `tests/test_config.py`); this is not a design problem. If the base `__init__` turns out to call `get_llm("default")` (the rotation test would then show a 6/5/4 split), call `self._panel = cycle(panel)` again after `super().__init__(**kwargs)`, and rerun.
 
 - [ ] **Step 5: Commit**
 
@@ -1146,7 +1149,7 @@ if git diff --cached --quiet; then
 fi
 git commit --quiet -m "$message"
 for attempt in 1 2 3 4 5; do
-  if git pull --rebase --quiet && git push --quiet; then
+  if git pull --rebase --quiet origin "${GITHUB_REF_NAME:-main}" && git push --quiet origin "HEAD:${GITHUB_REF_NAME:-main}"; then
     exit 0
   fi
   echo "Push attempt $attempt failed, retrying"
@@ -1248,12 +1251,18 @@ Replace its last two steps (`Show the summary in the run page` and `Keep the rev
         run: scripts/commit_data.sh "Weekly review and A vs. B report"
 ```
 
-- [ ] **Step 5: Validate YAML syntax**
+- [ ] **Step 5: Remove the Metaculus Cup workflow**
+
+The Cup is out of scope, and this workflow would spend credits on it every 2 days once pushed. (`test_bot.yaml` runs only by hand, so it stays.)
+
+Run: `git rm .github/workflows/run_bot_on_metaculus_cup.yaml`
+
+- [ ] **Step 6: Validate YAML syntax**
 
 Run: `python -c "import yaml,glob; [yaml.safe_load(open(f)) for f in glob.glob('.github/workflows/*.yaml')]; print('yaml ok')"`
 Expected: `yaml ok` (PyYAML comes in with the dependencies; if it's missing, `pip install pyyaml` into the venv).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add scripts/commit_data.sh .github/workflows
@@ -1285,7 +1294,9 @@ Expected: forecasts appear at https://www.metaculus.com/tournament/bot-testing-a
 Run: `python -c "import asyncio; from harness.shadow import *; from forecasting_tools import MetaculusClient; qs = questions_to_forecast(MetaculusClient().get_all_open_questions_from_tournament('bot-testing-area'), set())[:2]; from config import *; from harness.panel_bot import PanelBot; v = VARIANTS['B']; b = PanelBot(panel=build_panel(v), predictions_per_research_report=v.predictions_per_research_report, llms=build_llms(v)); print(asyncio.run(b.forecast_questions(qs, return_exceptions=True)))"`
 Expected: two reports printed (no exceptions), with all three panel models named in the explanations.
 
-- [ ] **Step 5: Push to GitHub and run the workflows by hand**
+- [ ] **Step 5: Push to GitHub (this is the real go-live) and run the workflow by hand**
+
+The 20-minute schedule starts firing, and publishing, as soon as the workflows land on `main` in GitHub. Push only once the Task 0 secrets are in place and you want variant A live.
 
 ```bash
 git remote add origin "$(gh repo view --json url -q .url <repo-name-from-task-0-step-5>)"
