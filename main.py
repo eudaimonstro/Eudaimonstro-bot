@@ -733,19 +733,30 @@ if __name__ == "__main__":
         "test_questions": "https://www.metaculus.com/tournament/bot-testing-area/",
     }
 
+    def record(reports):
+        # Only live tournament forecasts are scored; dry runs are not recorded.
+        if not publish_to_metaculus:
+            return
+        count = record_reports(
+            reports, "A", variant.forecaster_models, Path("data/forecasts")
+        )
+        logger.info(f"Recorded {count} forecasts for variant A")
+
     client = MetaculusClient()
-    with MonetaryCostManager(hard_limit=variant.cost_cap_usd):
+    with MonetaryCostManager(hard_limit=variant.cost_cap_usd) as cost_manager:
         if run_mode == "tournament":
             seasonal_tournament_reports = asyncio.run(
                 template_bot.forecast_on_tournament(
                     client.CURRENT_AI_COMPETITION_ID, return_exceptions=True
                 )
             )
+            record(seasonal_tournament_reports)
             minibench_reports = asyncio.run(
                 template_bot.forecast_on_tournament(
                     client.CURRENT_MINIBENCH_ID, return_exceptions=True
                 )
             )
+            record(minibench_reports)
             forecast_reports = seasonal_tournament_reports + minibench_reports
         elif run_mode == "metaculus_cup":
             template_bot.skip_previously_forecasted_questions = False
@@ -762,16 +773,12 @@ if __name__ == "__main__":
                 )
             )
 
+    logger.info(
+        f"Run cost ${cost_manager.current_usage:.2f} of ${variant.cost_cap_usd:.2f} cap"
+    )
     template_bot.log_report_summary(forecast_reports)
     print_run_summary_banner(
         forecast_reports,
         will_publish=publish_to_metaculus,
         tournament_url=TOURNAMENT_URLS.get(run_mode),
     )
-
-    # Only live tournament forecasts are scored; test-area and dry runs are not recorded.
-    if run_mode == "tournament" and publish_to_metaculus:
-        count = record_reports(
-            forecast_reports, "A", variant.forecaster_models, Path("data/forecasts")
-        )
-        logger.info(f"Recorded {count} forecasts for variant A")
