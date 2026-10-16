@@ -120,9 +120,48 @@ def test_missing_close_time_key_means_no_cutoff():
     assert len(paired_scores(records, {"1": {"resolution": "yes"}})) == 1
 
 
-from harness.score import missing_question_ids
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
+from harness.score import fetch_resolution, missing_by_post
 
 
-def test_missing_question_ids_skips_cached():
+def test_missing_by_post_skips_cached():
     records = [{"question_id": 1, "post_id": 10}, {"question_id": 2, "post_id": 20}, {"question_id": 1, "post_id": 10}]
-    assert missing_question_ids(records, {"1": {"resolution": "yes", "close_time": None}}) == {(20, 2)}
+    assert missing_by_post(records, {"1": {"resolution": "yes", "close_time": None}}) == {20: {2}}
+
+
+def test_missing_by_post_groups_questions_per_post():
+    records = [{"question_id": 1, "post_id": 10}, {"question_id": 2, "post_id": 10}]
+    assert missing_by_post(records, {}) == {10: {1, 2}}
+
+
+def _sub(qid, state, resolution):
+    return SimpleNamespace(
+        id_of_question=qid,
+        state=SimpleNamespace(value=state),
+        resolution_string=resolution,
+        close_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+
+
+class _StubClient:
+    def __init__(self, result):
+        self.result = result
+        self.calls = 0
+
+    def get_question_by_post_id(self, post_id, group_question_mode="exclude"):
+        self.calls += 1
+        return self.result
+
+
+def test_fetch_resolution_returns_only_resolved_from_one_call():
+    client = _StubClient([_sub(1, "resolved", "yes"), _sub(2, "open", None)])
+    assert fetch_resolution(client, 10, {1, 2}) == {1: {"resolution": "yes", "close_time": "2026-01-01T00:00:00+00:00"}}
+    assert client.calls == 1
+
+
+def test_fetch_resolution_single_object_and_unwanted_ids():
+    client = _StubClient(_sub(1, "resolved", "no"))
+    assert fetch_resolution(client, 10, {1}) == {1: {"resolution": "no", "close_time": "2026-01-01T00:00:00+00:00"}}
+    assert fetch_resolution(client, 10, {9}) == {}
