@@ -14,6 +14,9 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
+permissions:
+  contents: write
+
 # Scores how the bot's resolved forecasts turned out. Read-only: it makes no
 # forecasts, spends nothing on LLMs, and publishes nothing.
 # The weekly run is off by default: set the repository variable REVIEW_BOT_ENABLED to
@@ -44,13 +47,14 @@ jobs:
             --summary review.md
         env:
           METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }}
-      - name: Show the summary in the run page
-        run: cat review.md >> $GITHUB_STEP_SUMMARY
-      - name: Keep the review
-        uses: actions/upload-artifact@v4
-        with:
-          name: review
-          path: |
-            review.json
-            review.md
-          retention-days: 90
+      - name: Score A vs. B
+        run: poetry run python -m harness.score
+        env:
+          METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }}
+      - name: Save reports
+        run: |
+          mkdir -p data/reports
+          cp review.md "data/reports/$(date -u +%F)-bot-review.md"
+          cat review.md "data/reports/$(date -u +%F)-comparison.md" >> $GITHUB_STEP_SUMMARY
+      - name: Commit reports
+        run: scripts/commit_data.sh "Weekly review and A vs. B report"

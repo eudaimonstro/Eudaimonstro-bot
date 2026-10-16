@@ -1,0 +1,43 @@
+name: Shadow forecasts (variant B)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "37 */2 * * *" # every 2 hours
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+# Variant B never publishes. It only runs while the repository variable
+# SHADOW_ENABLED is "true", so it can be turned off first if credits run low.
+jobs:
+  shadow_job:
+    if: vars.SHADOW_ENABLED == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+          installer-parallel: true
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-root
+      - name: Run shadow bot
+        run: poetry run python -m harness.shadow
+        env:
+          METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ASKNEWS_CLIENT_ID: ${{ secrets.ASKNEWS_CLIENT_ID }}
+          ASKNEWS_SECRET: ${{ secrets.ASKNEWS_SECRET }}
+      - name: Commit forecast records
+        run: scripts/commit_data.sh "Record variant B forecasts"
