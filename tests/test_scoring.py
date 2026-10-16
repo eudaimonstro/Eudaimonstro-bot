@@ -61,6 +61,7 @@ def test_pairs_use_latest_forecast_before_close():
     assert pairs[0].score_a == pytest.approx(math.log(0.9))
     assert pairs[0].score_b == pytest.approx(math.log(0.7))
     assert pairs[0].had_errors is True
+    assert pairs[0].gap_hours == pytest.approx(-18.0)
 
 
 def test_bootstrap_of_constant_differences_is_that_constant():
@@ -92,9 +93,12 @@ def test_render_report_mentions_decision_and_counts():
     text = render_report(pairs, "2026-10-26")
     assert "Paired questions: 1" in text
     assert "Decision: Keep collecting" in text
+    assert "Median forecast gap" in text
+    assert "Maximum forecast gap" in text
 
 
-def _one_pair(close_time, forecast_time_a, forecast_time_b="2026-10-20T00:00:00+00:00"):
+def _one_pair(close_time, forecast_time_a, forecast_time_b=None):
+    forecast_time_b = forecast_time_b or forecast_time_a
     records = [rec("A", 1, 0.9, forecast_time_a), rec("B", 1, 0.7, forecast_time_b)]
     return paired_scores(records, {"1": {"resolution": "yes", "close_time": close_time}})
 
@@ -165,3 +169,16 @@ def test_fetch_resolution_single_object_and_unwanted_ids():
     client = _StubClient(_sub(1, "resolved", "no"))
     assert fetch_resolution(client, 10, {1}) == {1: {"resolution": "no", "close_time": "2026-01-01T00:00:00+00:00"}}
     assert fetch_resolution(client, 10, {9}) == {}
+
+
+def test_pairs_more_than_24_hours_apart_are_excluded():
+    close = {"close_time": "2026-10-30T00:00:00+00:00"}
+    records = [
+        rec("A", 1, 0.9, "2026-10-20T00:00:00+00:00"),
+        rec("B", 1, 0.7, "2026-10-21T06:00:00+00:00"),  # 30 hours later: excluded
+        rec("A", 2, 0.9, "2026-10-20T00:00:00+00:00"),
+        rec("B", 2, 0.7, "2026-10-20T02:00:00+00:00"),  # 2 hours later: included
+    ]
+    pairs = paired_scores(records, {"1": {"resolution": "yes", **close}, "2": {"resolution": "yes", **close}})
+    assert [p.question_id for p in pairs] == [2]
+    assert pairs[0].gap_hours == pytest.approx(2.0)

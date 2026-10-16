@@ -34,12 +34,14 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction --no-root
       - name: Run shadow bot
+        timeout-minutes: 80
         run: poetry run python -m harness.shadow
         env:
           METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ASKNEWS_CLIENT_ID: ${{ secrets.ASKNEWS_CLIENT_ID }}
           ASKNEWS_SECRET: ${{ secrets.ASKNEWS_SECRET }}
+          ASKNEWS_API_KEY: ${{ secrets.ASKNEWS_API_KEY }}
       - name: Commit forecast records
         if: success() || failure()
         run: scripts/commit_data.sh "Record variant B forecasts"

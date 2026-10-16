@@ -54,6 +54,7 @@ jobs:
           mkdir -p data/reports
           cp review.md "data/reports/$(date -u +%F)-bot-review.md"
       - name: Score A vs. B
+        if: success() || failure()
         run: poetry run python -m harness.score
         env:
           METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }}

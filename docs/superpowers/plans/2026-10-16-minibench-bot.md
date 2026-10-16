@@ -41,9 +41,9 @@ Claude cannot do these, because each one creates an account or handles a credent
 - [ ] **Step 1:** Create a Metaculus bot account and copy its token from https://www.metaculus.com/futureeval/participate/
 - [ ] **Step 2:** Fill in the FutureEval participant form (three required questions). Apply for LLM credits through the form linked in `.env.template` (https://forms.gle/aQdYMq9Pisrf1v7d8), and say the bot will be open source.
 - [ ] **Step 3:** Create an OpenRouter account and API key (or use the key that comes with donated credits). In the OpenRouter key settings, set a **credit limit** on the key. This is the hard cap from the spec.
-- [ ] **Step 4:** Request AskNews access through the Metaculus partnership (AskNews Discord, contact @freqai, or email). You'll get `ASKNEWS_CLIENT_ID` and `ASKNEWS_SECRET`.
+- [ ] **Step 4:** Request AskNews access through the Metaculus partnership (AskNews Discord, contact @freqai, or email). You'll get `ASKNEWS_CLIENT_ID` and `ASKNEWS_SECRET` (if AskNews gives you a single API key instead, use `ASKNEWS_API_KEY` as the secret name).
 - [ ] **Step 5:** Create an empty **public** GitHub repo. With the GitHub CLI, run `gh repo create <name> --public` in a terminal.
-- [ ] **Step 6:** In the repo, go to Settings → Secrets and variables → Actions and add these secrets: `METACULUS_TOKEN`, `OPENROUTER_API_KEY`, `ASKNEWS_CLIENT_ID`, `ASKNEWS_SECRET`. Add these variables: `REVIEW_BOT_ENABLED=true` and `SHADOW_ENABLED=false` (B stays off until Task 10).
+- [ ] **Step 6:** In the repo, go to Settings → Secrets and variables → Actions and add these secrets: `METACULUS_TOKEN`, `OPENROUTER_API_KEY`, `ASKNEWS_CLIENT_ID`, `ASKNEWS_SECRET` (or just `ASKNEWS_API_KEY` if AskNews gave you an API key instead). Add these variables: `REVIEW_BOT_ENABLED=true` and `SHADOW_ENABLED=false` (B stays off until Task 10).
 - [ ] **Step 7:** Create a local `.env` from `.env.template` once Task 1 imports it, and fill in the same four values. `.env` is gitignored.
 
 ---
@@ -1284,6 +1284,8 @@ Expected: the run summary banner shows forecasts for several question types and 
 
 In the dry-run output, read each report's price estimate. Multiply the average by about 60 questions per MiniBench round, and check that against the OpenRouter key limit from Task 0. If it's too high, lower `predictions_per_model` for A to 3 in `config.py`, then rerun Step 1.
 
+Gate: the `Run cost $X of $5.00 cap` log line and the report price estimates must be above $0.00. If they read $0.00, OpenRouter isn't reporting cost and the per-run cap can't trip, so don't go live until the OpenRouter key limit is set (it must be set regardless).
+
 - [ ] **Step 3: Publish to the testing area and confirm comments**
 
 Run: `python main.py --mode test_questions`
@@ -1297,6 +1299,8 @@ Expected: two reports printed (no exceptions), with all three panel models named
 - [ ] **Step 5: Push to GitHub (this is the real go-live) and run the workflow by hand**
 
 The 20-minute schedule starts firing, and publishing, as soon as the workflows land on `main` in GitHub. Push only once the Task 0 secrets are in place and you want variant A live.
+
+The code is on branch `bot-v1`. Merge it into `main` first (the finishing-a-development-branch step does this), then push `main`.
 
 ```bash
 git remote add origin "$(gh repo view --json url -q .url <repo-name-from-task-0-step-5>)"

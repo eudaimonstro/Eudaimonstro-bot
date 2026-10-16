@@ -42,6 +42,7 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction --no-root
       - name: Run bot
+        timeout-minutes: 40
         run: |
           poetry run python main.py
         # this reads the environment variables from the github repository.
@@ -55,6 +56,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ASKNEWS_CLIENT_ID: ${{ secrets.ASKNEWS_CLIENT_ID }}
           ASKNEWS_SECRET: ${{ secrets.ASKNEWS_SECRET }}
+          ASKNEWS_API_KEY: ${{ secrets.ASKNEWS_API_KEY }}
       - name: Commit forecast records
         if: success() || failure()
         run: scripts/commit_data.sh "Record variant A forecasts"

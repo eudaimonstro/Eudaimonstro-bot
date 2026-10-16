@@ -16,7 +16,7 @@ def forecast_in_chunks(
     questions: Sequence[Any],
     chunk_size: int,
     cost_manager: MonetaryCostManager,
-    on_chunk: Callable[[list], None],
+    on_chunk: Callable[[list], object],
 ) -> list:
     """Forecast `chunk_size` questions at a time, handing each chunk's reports to `on_chunk`
     as soon as it finishes. Stops before starting a chunk once the cost cap is used up."""
@@ -28,6 +28,8 @@ def forecast_in_chunks(
             )
             break
         chunk = list(questions[start : start + chunk_size])
+        # Repeated asyncio.run relies on forecasting_tools applying nest_asyncio on import; otherwise the
+        # template's class-level semaphore stays bound to the first event loop.
         reports = asyncio.run(bot.forecast_questions(chunk, return_exceptions=True))
         on_chunk(reports)
         all_reports.extend(reports)

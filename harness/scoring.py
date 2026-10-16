@@ -6,11 +6,12 @@ import math
 import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from statistics import mean
+from statistics import mean, median
 
 UNSCORED_RESOLUTIONS = {"annulled", "ambiguous"}
 MIN_PAIRS_TO_SWITCH = 100
 MAX_PAIRS_BEFORE_GIVING_UP = 250
+MAX_GAP_HOURS = 24
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,7 @@ class PairedScore:
     score_a: float
     score_b: float
     had_errors: bool
+    gap_hours: float
 
     @property
     def difference(self) -> float:
@@ -72,8 +74,11 @@ def paired_scores(records: list[dict], resolutions: dict[str, dict]) -> list[Pai
         score_b = log_score(b["question_type"], b["forecast"], resolved["resolution"])
         if score_a is None or score_b is None:
             continue
+        gap_hours = (_parse_time(b["forecast_time"]) - _parse_time(a["forecast_time"])).total_seconds() / 3600
+        if abs(gap_hours) > MAX_GAP_HOURS:
+            continue
         had_errors = a.get("error_count", 0) > 0 or b.get("error_count", 0) > 0
-        pairs.append(PairedScore(question_id, score_a, score_b, had_errors))
+        pairs.append(PairedScore(question_id, score_a, score_b, had_errors, gap_hours))
     return pairs
 
 
@@ -110,6 +115,8 @@ def render_report(pairs: list[PairedScore], date: str) -> str:
         f"- Mean difference (B minus A): {mean(differences):.4f}",
         f"- 80% bootstrap interval: [{low:.4f}, {high:.4f}]",
         f"- Pairs where either variant had errors: {sum(p.had_errors for p in pairs)}",
+        f"- Median forecast gap, B minus A (absolute, hours): {median(abs(p.gap_hours) for p in pairs):.1f}",
+        f"- Maximum forecast gap, B minus A (absolute, hours): {max(abs(p.gap_hours) for p in pairs):.1f}",
         "",
         f"Decision: {decide(len(pairs), low)}",
         "",
