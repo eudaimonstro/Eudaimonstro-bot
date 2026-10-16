@@ -24,6 +24,7 @@ permissions:
 jobs:
   review_job:
     if: vars.REVIEW_BOT_ENABLED == 'true' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 45
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -42,19 +43,24 @@ jobs:
       - name: Review forecasts
         run: |
           poetry run bot-review review \
-            --resolved-since ${{ inputs.days || 30 }} \
+            --resolved-since "$DAYS" \
             --output review.json \
             --summary review.md
         env:
           METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }}
+          DAYS: ${{ inputs.days || 30 }}
+      - name: Save review report
+        run: |
+          mkdir -p data/reports
+          cp review.md "data/reports/$(date -u +%F)-bot-review.md"
       - name: Score A vs. B
         run: poetry run python -m harness.score
         env:
           METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }}
-      - name: Save reports
+      - name: Show reports in the run page
         run: |
-          mkdir -p data/reports
-          cp review.md "data/reports/$(date -u +%F)-bot-review.md"
-          cat review.md "data/reports/$(date -u +%F)-comparison.md" >> $GITHUB_STEP_SUMMARY
+          cat review.md >> "$GITHUB_STEP_SUMMARY"
+          cat data/reports/*-comparison.md 2>/dev/null | tail -n 40 >> "$GITHUB_STEP_SUMMARY" || true
       - name: Commit reports
+        if: success() || failure()
         run: scripts/commit_data.sh "Weekly review and A vs. B report"

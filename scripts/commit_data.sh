@@ -12,10 +12,11 @@ if git diff --cached --quiet; then
 fi
 git commit --quiet -m "$message"
 for attempt in 1 2 3 4 5; do
-  if git pull --rebase --quiet origin "${GITHUB_REF_NAME:-main}" && git push --quiet origin "HEAD:${GITHUB_REF_NAME:-main}"; then
+  if git pull --rebase --autostash --quiet origin "${GITHUB_REF_NAME:-main}" && git push --quiet origin "HEAD:${GITHUB_REF_NAME:-main}"; then
     exit 0
   fi
   echo "Push attempt $attempt failed, retrying"
+  git rebase --abort 2>/dev/null || true
   sleep $((attempt * 5))
 done
 echo "Could not push data after 5 attempts" >&2
